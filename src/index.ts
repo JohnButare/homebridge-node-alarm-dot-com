@@ -108,6 +108,11 @@ class ADCPlatform implements DynamicPlatformPlugin {
   private config: PlatformConfig;
   private logLevel: CustomLogLevel;
   private armingModes: Record<string, Record<string, boolean>>;
+  private ignoreGarageDoors: boolean;
+  private ignoreLights: boolean;
+  private ignoreLocks: boolean;
+  private ignoreSensors: boolean;
+  private ignoreThermostats: boolean;
   private ignoredDevices: string[];
   private useMFA: boolean;
   private mfaToken?: string;
@@ -125,11 +130,15 @@ class ADCPlatform implements DynamicPlatformPlugin {
     this.config = config ?? { platform: PLUGIN_NAME };
     this.logLevel = this.config.logLevel ?? LOG_LEVEL;
     this.log = new CustomLogger(log, this.logLevel);
+    this.ignoreGarageDoors = this.config.ignoreGarageDoors ?? false;
+    this.ignoreLights = this.config.ignoreLights ?? false;
+    this.ignoreLocks = this.config.ignoreLocks ?? false;
+    this.ignoreSensors = this.config.ignoreSensors ?? false;
+    this.ignoreThermostats = this.config.ignoreThermostats ?? false;
     this.ignoredDevices = this.config.ignoredDevices ?? [];
     this.useMFA = this.config.useMFA ?? false;
     this.mfaToken = this.config.useMFA ? this.config.mfaCookie : null;
     this.tempDisplayUnitSetting = hapCharacteristic.TemperatureDisplayUnits.CELSIUS;
-
     this.config.authTimeoutMinutes = this.config.authTimeoutMinutes ?? AUTH_TIMEOUT_MINS;
     this.config.pollTimeoutSeconds = this.config.pollTimeoutSeconds ?? POLL_TIMEOUT_SECS;
 
@@ -229,7 +238,7 @@ class ADCPlatform implements DynamicPlatformPlugin {
               const realDeviceType = deviceType.split('/')[1];
               // Check so we don't add accessories which were already restored
               // Don't add devices which should be ignored
-              if (!this.ignoredDevices.includes(d.id)) {
+              if (!this.ignoreDevice(d)) {
                 const uuid = this.api.hap.uuid.generate(d.id);
                 const existingAccessory = this.accessories.find((accessory) => accessory.UUID === uuid);
                 if (!existingAccessory) {
@@ -269,6 +278,19 @@ class ADCPlatform implements DynamicPlatformPlugin {
 
     // Start a timer to periodically refresh status
     this.timerLoop();
+  }
+
+  ignoreDevice(d: DeviceState): boolean {
+    const deviceType = d.type;
+    const realDeviceType = deviceType.split('/')[1];
+
+    if (this.ignoredDevices.includes(d.id)) return true;
+    if (this.ignoreGarageDoors && realDeviceType === 'garage-door') return true;
+    if (this.ignoreLights && realDeviceType === 'light') return true;
+    if (this.ignoreLocks && realDeviceType === 'lock') return true;
+    if (this.ignoreSensors && realDeviceType === 'sensor') return true;
+    if (this.ignoreThermostats && realDeviceType === 'thermostat') return true;
+    return false;
   }
 
   /**
@@ -423,7 +445,7 @@ class ADCPlatform implements DynamicPlatformPlugin {
             throw new Error('No partitions found, check configuration with security system provider');
           }
 
-          if (system.sensors) {
+          if (!this.ignoreSensors && system.sensors) {
             system.sensors.forEach((sensor) => {
               const accessory = this.accessories.find(
                 (accessory) => accessory.context.accID === sensor.id
@@ -435,11 +457,11 @@ class ADCPlatform implements DynamicPlatformPlugin {
                 this.statSensorState(accessory, sensor);
               }
             });
-          } else {
+          } else if (!this.ignoreSensors) {
             this.log.info('No sensors found, ignore if expected, or check configuration with security system provider');
           }
 
-          if (system.lights) {
+          if (!this.ignoreLights && system.lights) {
             system.lights.forEach((light) => {
               const accessory = this.accessories.find(
                 (accessory) => accessory.context.accID === light.id
@@ -451,11 +473,11 @@ class ADCPlatform implements DynamicPlatformPlugin {
                 this.statLightState(accessory, light, null);
               }
             });
-          } else {
+          } else if (!this.ignoreLights) {
             this.log.info('No lights found, ignore if expected, or check configuration with security system provider');
           }
 
-          if (system.locks) {
+          if (!this.ignoreLocks && system.locks) {
             system.locks.forEach((lock) => {
               const accessory = this.accessories.find(
                 (accessory) => accessory.context.accID === lock.id
@@ -467,11 +489,11 @@ class ADCPlatform implements DynamicPlatformPlugin {
                 this.statLockState(accessory, lock);
               }
             });
-          } else {
+          } else if (!this.ignoreLocks) {
             this.log.info('No locks found, ignore if expected, or check configuration with security system provider');
           }
 
-          if (system.garages) {
+          if (!this.ignoreGarageDoors && system.garages) {
             system.garages.forEach((garage) => {
               const accessory = this.accessories.find(
                 (accessory) => accessory.context.accID === garage.id
@@ -483,13 +505,13 @@ class ADCPlatform implements DynamicPlatformPlugin {
                 this.statGarageState(accessory, garage);
               }
             });
-          } else {
+          } else if (!this.ignoreGarageDoors) {
             this.log.info(
               'No garage doors found, ignore if expected, or check configuration with security system provider'
             );
           }
 
-          if (system.thermostats) {
+          if (!this.ignoreThermostats && system.thermostats) {
             system.thermostats.forEach((thermostat) => {
               const accessory = this.accessories.find(
                 (accessory) => accessory.context.accID === thermostat.id
@@ -501,7 +523,7 @@ class ADCPlatform implements DynamicPlatformPlugin {
                 this.statThermostatState(accessory, thermostat);
               }
             });
-          } else {
+          } else if (!this.ignoreThermostats) {
             this.log.info(
               'No thermostats found, ignore if expected, or check configuration with security system provider'
             );
@@ -1137,6 +1159,10 @@ class ADCPlatform implements DynamicPlatformPlugin {
     const state = getLockCurrentState(lock.attributes.state);
     const desiredState = getLockTargetState(lock.attributes.desiredState);
     const service = accessory.getService(hapService.LockMechanism);
+
+    this.log.info(
+      `statLockState: batterLevelNull: ${lock.attributes.batteryLevelNull} lowBattery: ${lock.attributes.lowBattery} criticalBattery: ${lock.attributes.criticalBattery}`
+    );
 
     if (service === undefined) {
       throw new Error(`Trouble getting HomeKit accessory information for ${accessory.context.accID}`);

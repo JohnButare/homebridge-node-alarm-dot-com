@@ -88,6 +88,26 @@
           }
         }
       },
+      "ignoreGarageDoors": {
+        "title": "Ignore Garage Doors",
+        "description": "Ignore all garage doors.",
+        "type": "boolean"
+      },
+      "ignoreLights": {
+        "title": "Ignore Lights",
+        "description": "Ignore all lights.",
+        "type": "boolean"
+      },
+      "ignoreSensors": {
+        "title": "Ignore Sensors",
+        "description": "Ignore all sensors.",
+        "type": "boolean"
+      },
+      "ignoreThermostats": {
+        "title": "Ignore Thermostats",
+        "description": "Ignore all thermostats.",
+        "type": "boolean"
+      },
       "ignoredDevices": {
         "title": "Ignored Devices",
         "description": "IDs for Alarm.com accessories you wish to hide in Homekit.",
